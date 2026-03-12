@@ -86,11 +86,11 @@
   .input-card .subtitle {
     color: #888;
     font-size: 1.1rem;
-    margin-bottom: 32px;
+    margin-bottom: 28px;
   }
   .notebook-input {
     width: 100%;
-    min-height: 100px;
+    min-height: 80px;
     border: none;
     border-bottom: 3px solid var(--bleu-clair);
     background: transparent;
@@ -105,10 +105,62 @@
   }
   .notebook-input::placeholder { color: #bbb; }
   .input-hint {
-    margin-top: 20px;
+    margin-top: 14px;
     font-size: 0.95rem;
     color: #aaa;
   }
+  /* ---- Sélecteur de difficultés interactif ---- */
+  .difficultes-section {
+    margin-top: 28px;
+    text-align: left;
+  }
+  .difficultes-section h2 {
+    font-size: 1.05rem;
+    color: var(--bleu);
+    margin-bottom: 4px;
+    font-weight: 700;
+  }
+  .difficultes-section p {
+    font-size: 0.82rem;
+    color: #aaa;
+    margin-bottom: 14px;
+  }
+  /* La phrase rendue cliquable lettre par lettre */
+  .phrase-clickable {
+    font-family: var(--cursive);
+    font-size: 2rem;
+    color: var(--bleu);
+    line-height: 1.8;
+    cursor: default;
+    user-select: none;
+    word-break: break-word;
+    min-height: 2.5rem;
+  }
+  .phrase-clickable .lettre {
+    display: inline;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background .1s;
+    padding: 0 1px;
+  }
+  .phrase-clickable .lettre:hover {
+    background: rgba(214, 59, 47, 0.12);
+  }
+  .phrase-clickable .lettre.sel {
+    color: var(--rouge);
+    font-weight: 700;
+    background: rgba(214, 59, 47, 0.10);
+    border-radius: 3px;
+  }
+  .phrase-clickable .lettre.space {
+    cursor: default;
+  }
+  .diff-hint {
+    margin-top: 10px;
+    font-size: 0.82rem;
+    color: #aaa;
+  }
+  .diff-hint span { color: var(--rouge); font-weight: 700; }
 
   /* ========== FOND TABLEAU ========== */
   .tableau-bg {
@@ -459,8 +511,15 @@
   <div class="input-card">
     <h1>🖊 La Dictée Cachée</h1>
     <p class="subtitle">Maîtresse, saisissez la phrase du jour</p>
-    <textarea class="notebook-input" id="phrase-input" placeholder="Écrivez la phrase ici…" rows="3" autofocus></textarea>
+    <textarea class="notebook-input" id="phrase-input" placeholder="Écrivez la phrase ici…" rows="2" autofocus oninput="majPhraseClickable()"></textarea>
     <p class="input-hint">Appuyez sur "Suivant" pour commencer la dictée</p>
+
+    <div class="difficultes-section">
+      <h2>🔴 Cliquez sur les lettres à mettre en rouge</h2>
+      <p>Sélectionnez directement les sons difficiles dans la phrase ci-dessous</p>
+      <div class="phrase-clickable" id="phrase-clickable"></div>
+      <div class="diff-hint" id="diff-hint">Aucune difficulté sélectionnée</div>
+    </div>
   </div>
 </div>
 
@@ -696,15 +755,70 @@
 // ============================================================
 // SONS COMPLEXES À DÉTECTER (ordre important : plus longs d'abord)
 // ============================================================
-const SONS = [
-  'eau','eau','ain','ein','oin','ien','ier','ion',
-  'ail','eil','euil','ouil',
-  'an','en','on','in','un','ou','au','eu','oi',
-  'ch','gn','ph','qu','ss','gu','ill',
-  'ai','ei','oe','ae'
-];
-// Triés du plus long au plus court pour éviter les chevauchements
-const SONS_SORTED = [...new Set(SONS)].sort((a,b) => b.length - a.length);
+// ============================================================
+// GESTION DE LA SÉLECTION DIRECTE DANS LA PHRASE
+// ============================================================
+// selectedIndices : Set des indices de caractères sélectionnés (rouges)
+let selectedIndices = new Set();
+let isSelecting = false;   // true = on peint en rouge
+let isDragging = false;
+
+function majPhraseClickable() {
+  const texte = document.getElementById('phrase-input').value;
+  const container = document.getElementById('phrase-clickable');
+  // Reconstruire les spans (on perd la sélection si la phrase change → reset)
+  selectedIndices = new Set();
+  majHint();
+
+  let html = '';
+  for (let i = 0; i < texte.length; i++) {
+    const c = texte[i];
+    if (c === ' ') {
+      html += `<span class="lettre space" data-idx="${i}"> </span>`;
+    } else {
+      html += `<span class="lettre" data-idx="${i}">${c.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span>`;
+    }
+  }
+  container.innerHTML = html;
+
+  // Événements : clic simple + glisser-peindre
+  container.querySelectorAll('.lettre:not(.space)').forEach(span => {
+    span.addEventListener('mousedown', e => {
+      e.preventDefault();
+      isDragging = true;
+      const idx = +span.dataset.idx;
+      // Si déjà sélectionné, on efface ; sinon on peint
+      isSelecting = !selectedIndices.has(idx);
+      toggleLettre(span, idx);
+    });
+    span.addEventListener('mouseenter', e => {
+      if (!isDragging) return;
+      toggleLettre(span, +span.dataset.idx, isSelecting);
+    });
+  });
+  document.addEventListener('mouseup', () => { isDragging = false; });
+}
+
+function toggleLettre(span, idx, forceState) {
+  const shouldSelect = forceState !== undefined ? forceState : !selectedIndices.has(idx);
+  if (shouldSelect) {
+    selectedIndices.add(idx);
+    span.classList.add('sel');
+  } else {
+    selectedIndices.delete(idx);
+    span.classList.remove('sel');
+  }
+  majHint();
+}
+
+function majHint() {
+  const hint = document.getElementById('diff-hint');
+  if (selectedIndices.size === 0) {
+    hint.innerHTML = 'Aucune difficulté sélectionnée';
+  } else {
+    hint.innerHTML = `<span>${selectedIndices.size} lettre(s) sélectionnée(s)</span> — elles apparaîtront en rouge`;
+  }
+}
 
 // ============================================================
 // ÉTAT GLOBAL
@@ -766,6 +880,10 @@ function showScreen(idx) {
 
     case 'screen-read1':
       phrase = document.getElementById('phrase-input').value.trim() || 'Le petit chat mange une souris dans la maison.';
+      // Reconstruire la phrase cliquable si pas encore fait
+      if (document.getElementById('phrase-clickable').children.length !== phrase.length) {
+        majPhraseClickable();
+      }
       document.getElementById('phrase-read1').innerHTML = escapeHTML(phrase);
       startTimer('prog1','num1', 30, goNext);
       break;
@@ -874,41 +992,23 @@ function bip(secondesRestantes) {
 // SONS COMPLEXES EN ROUGE
 // ============================================================
 function highlightSons(text) {
-  // On travaille caractère par caractère pour éviter les doublons
-  const lower = text.toLowerCase();
-  const marked = new Array(text.length).fill(false);
+  if (selectedIndices.size === 0) return escapeHTML(text);
 
-  for (const son of SONS_SORTED) {
-    let pos = 0;
-    while ((pos = lower.indexOf(son, pos)) !== -1) {
-      // Vérifier qu'aucune position n'est déjà marquée
-      let overlap = false;
-      for (let i = pos; i < pos + son.length; i++) {
-        if (marked[i]) { overlap = true; break; }
-      }
-      if (!overlap) {
-        for (let i = pos; i < pos + son.length; i++) marked[i] = true;
-      }
-      pos++;
-    }
-  }
-
-  // Construire le HTML
-  let html = '';
+  let result = '';
   let i = 0;
   while (i < text.length) {
-    if (marked[i]) {
-      // Trouver la fin du groupe marqué
+    if (selectedIndices.has(i)) {
+      // Regrouper les lettres consécutives sélectionnées
       let j = i;
-      while (j < text.length && marked[j]) j++;
-      html += `<span style="color:#ff6b6b; font-weight:700; text-shadow:0 0 10px rgba(255,100,100,0.5);">${escapeHTML(text.slice(i, j))}</span>`;
+      while (j < text.length && selectedIndices.has(j)) j++;
+      result += `<span style="color:#ff6b6b; font-weight:700; text-shadow:0 0 10px rgba(255,100,100,0.5);">${escapeHTML(text.slice(i, j))}</span>`;
       i = j;
     } else {
-      html += escapeHTML(text[i]);
+      result += escapeHTML(text[i]);
       i++;
     }
   }
-  return html;
+  return result;
 }
 
 function escapeHTML(str) {
@@ -930,6 +1030,9 @@ function relancer() {
   document.getElementById('btn-relancer').style.display = 'none';
   document.getElementById('btn-next').classList.remove('hidden');
   document.getElementById('phrase-input').value = '';
+  selectedIndices = new Set();
+  document.getElementById('phrase-clickable').innerHTML = '';
+  majHint();
   flash(() => { showScreen(0); });
 }
 </script>
